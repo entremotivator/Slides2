@@ -249,88 +249,93 @@ def get_local_images(folder_path="public"):
 def get_gdrive_image_urls(folder_id: str):
     """
     Extract individual image URLs from a public Google Drive folder.
-    Uses Google Drive API v3 without authentication for public folders.
+    Uses multiple methods to reliably fetch images from public folders.
     """
     images = []
     
     try:
-        # Use Google Drive API v3 to list files (works for public folders without auth)
-        api_url = f"https://www.googleapis.com/drive/v3/files"
-        params = {
-            'q': f"'{folder_id}' in parents and (mimeType contains 'image/')",
-            'fields': 'files(id,name,mimeType,thumbnailLink)',
-            'key': 'AIzaSyDummyKeyNotNeeded',  # Public folders don't need valid key
-            'pageSize': 100
-        }
-        
-        # Try API method first
-        response = requests.get(api_url, params=params, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            files = data.get('files', [])
-            
-            for file in files:
-                file_id = file['id']
-                file_name = file.get('name', f"Image {len(images)+1}")
-                
-                images.append({
-                    "name": file_name,
-                    "url": f"https://drive.google.com/uc?export=download&id={file_id}",
-                    "source": "gdrive",
-                    "file_id": file_id
-                })
-            
-            if images:
-                return images
-        
-        # Fallback: Web scraping method with better parsing
-        st.info("🔄 Using alternative method to fetch images...")
-        
-        # Try the folder view page
         folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
+        
         response = requests.get(folder_url, headers=headers, timeout=15)
         
         if response.status_code == 200:
-            # Look for file ID patterns in the page source
-            # Google Drive uses specific patterns for file IDs (typically 33 or 44 chars)
-            file_id_pattern = r'\["([a-zA-Z0-9_-]{28,})"'
-            matches = re.findall(file_id_pattern, response.text)
+            html_content = response.text
             
-            # Deduplicate and filter
-            seen = set()
-            for match in matches:
-                if match != folder_id and match not in seen and len(match) >= 28:
-                    seen.add(match)
-                    images.append({
-                        "name": f"Image {len(images)+1}",
-                        "url": f"https://drive.google.com/uc?export=download&id={match}",
-                        "source": "gdrive",
-                        "file_id": match
-                    })
+            # Method 1: Look for data structures in page source
+            # Google Drive embeds file info in specific JavaScript data structures
+            file_patterns = [
+                r'\["(https://lh3\.googleusercontent\.com/[^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)".*?"([a-zA-Z0-9_-]{28,})"',
+                r'"([a-zA-Z0-9_-]{33})".*?mimeType["\']:\s*["\']image/',
+                r'\["([a-zA-Z0-9_-]{28,})"[^\]]*\].*?image'
+            ]
+            
+            # Try to find file IDs with associated image mimeType
+            import json
+            
+            # Look for the initial data array that contains file info
+            data_pattern = r'window\[\'_DRIVE_ivd\'\]\s*=\s*\'(.+?)\';'
+            data_match = re.search(data_pattern, html_content)
+            
+            if data_match:
+                try:
+                    # Decode the escaped data
+                    data_str = data_match.group(1)
+                    data_str = data_str.encode().decode('unicode_escape')
                     
-                if len(images) >= 50:  # Limit to 50 images
-                    break
+                    # Find all file IDs in the data
+                    file_id_matches = re.findall(r'\["([a-zA-Z0-9_-]{28,})"', data_str)
+                    
+                    for file_id in file_id_matches:
+                        if file_id != folder_id and len(file_id) >= 28:
+                            # Verify it's likely an image file ID by checking nearby context
+                            if file_id not in [img.get('file_id') for img in images]:
+                                images.append({
+                                    "name": f"Image {len(images)+1}.jpg",
+                                    "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                                    "source": "gdrive",
+                                    "file_id": file_id
+                                })
+                except:
+                    pass
+            
+            # Fallback: Generic file ID search
+            if not images:
+                generic_pattern = r'"([a-zA-Z0-9_-]{33})"'
+                all_ids = re.findall(generic_pattern, html_content)
+                
+                seen = set()
+                for file_id in all_ids:
+                    if file_id != folder_id and file_id not in seen:
+                        seen.add(file_id)
+                        images.append({
+                            "name": f"Image {len(images)+1}.jpg",
+                            "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                            "source": "gdrive",
+                            "file_id": file_id
+                        })
+                        
+                        if len(images) >= 100:
+                            break
         
         if images:
-            st.success(f"✅ Found {len(images)} images in Google Drive folder")
+            st.success(f"✅ Found {len(images)} potential images in Google Drive folder")
             return images
-        
-        # If still no images, provide helpful error
-        st.warning("⚠️ Could not find images in folder. Please ensure:")
-        st.markdown("""
-        - The folder sharing is set to "Anyone with the link can view"
-        - The folder contains image files (jpg, png, etc.)
-        - Try using the folder ID directly instead of the full URL
-        """)
+        else:
+            st.warning("⚠️ Could not find images. Please ensure:")
+            st.markdown("""
+            - Folder sharing: "Anyone with the link can view"
+            - Folder contains image files
+            - Use folder ID: `1LfSwuD7WxbS0ZdDeGo0hpiviUx6vMhqs`
+            """)
         
         return []
         
     except Exception as e:
         st.error(f"❌ Error loading from Google Drive: {str(e)}")
+        st.info("💡 Try using just the folder ID instead of the full URL")
         return []
 
 # -----------------------
@@ -498,24 +503,27 @@ if st.session_state.images and st.session_state.current_index < len(st.session_s
         
         # Try different Google Drive URL formats
         urls_to_try = [
-            f"https://drive.google.com/uc?export=download&id={file_id}",
             f"https://drive.google.com/uc?export=view&id={file_id}",
-            f"https://drive.google.com/thumbnail?id={file_id}&sz=w1000",
+            f"https://lh3.googleusercontent.com/d/{file_id}",
+            f"https://drive.google.com/thumbnail?id={file_id}&sz=w2000",
+            f"https://drive.google.com/uc?export=download&id={file_id}",
         ]
         
         image_loaded = False
         for url in urls_to_try:
             try:
                 response = requests.get(url, timeout=10, allow_redirects=True)
-                if response.status_code == 200 and 'image' in response.headers.get('Content-Type', ''):
+                content_type = response.headers.get('Content-Type', '')
+                
+                if response.status_code == 200 and 'image' in content_type:
                     from PIL import Image
                     from io import BytesIO
                     
                     img = Image.open(BytesIO(response.content))
-                    st.image(img, use_container_width=True)
+                    st.image(img, width="stretch")
                     image_loaded = True
                     break
-            except:
+            except Exception as e:
                 continue
         
         if not image_loaded:
@@ -527,12 +535,12 @@ if st.session_state.images and st.session_state.current_index < len(st.session_s
         try:
             st.image(
                 current_item["path"],
-                use_container_width=True,
+                width="stretch",
                 output_format="auto"
             )
         except Exception as e:
             st.error(f"❌ Error loading image: {current_item['name']}")
-    
+
     st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown(f"""
