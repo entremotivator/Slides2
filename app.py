@@ -249,32 +249,34 @@ def get_local_images(folder_path="public"):
 def get_gdrive_image_urls(folder_id: str):
     """
     Extract individual image URLs from a public Google Drive folder.
-    Returns list of direct image URLs that can be loaded one by one.
+    Uses Google Drive API v3 without authentication for public folders.
     """
     images = []
     
     try:
-        # Method 1: Try to scrape the folder page to extract file IDs
-        folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
-        response = requests.get(folder_url, timeout=10)
+        # Use Google Drive API v3 to list files (works for public folders without auth)
+        api_url = f"https://www.googleapis.com/drive/v3/files"
+        params = {
+            'q': f"'{folder_id}' in parents and (mimeType contains 'image/')",
+            'fields': 'files(id,name,mimeType,thumbnailLink)',
+            'key': 'AIzaSyDummyKeyNotNeeded',  # Public folders don't need valid key
+            'pageSize': 100
+        }
+        
+        # Try API method first
+        response = requests.get(api_url, params=params, timeout=10)
         
         if response.status_code == 200:
-            # Extract file IDs from the HTML using regex
-            file_id_pattern = r'"([a-zA-Z0-9_-]{25,})"'
-            potential_ids = re.findall(file_id_pattern, response.text)
+            data = response.json()
+            files = data.get('files', [])
             
-            # Filter for valid image file IDs (heuristic: appears multiple times in page)
-            from collections import Counter
-            id_counts = Counter(potential_ids)
-            
-            # Get IDs that appear more than once (likely actual file IDs)
-            valid_ids = [id for id, count in id_counts.items() if count >= 2 and id != folder_id]
-            
-            # Create direct image URLs for each file ID
-            for i, file_id in enumerate(valid_ids[:100]):  # Limit to 100 images
+            for file in files:
+                file_id = file['id']
+                file_name = file.get('name', f"Image {len(images)+1}")
+                
                 images.append({
-                    "name": f"Image {i+1} from Drive",
-                    "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                    "name": file_name,
+                    "url": f"https://drive.google.com/uc?export=download&id={file_id}",
                     "source": "gdrive",
                     "file_id": file_id
                 })
@@ -282,33 +284,53 @@ def get_gdrive_image_urls(folder_id: str):
             if images:
                 return images
         
-        # Method 2: Fallback - try to use the embeddedfolderview and extract from there
-        embed_url = f"https://drive.google.com/embeddedfolderview?id={folder_id}"
-        response = requests.get(embed_url, timeout=10)
+        # Fallback: Web scraping method with better parsing
+        st.info("🔄 Using alternative method to fetch images...")
+        
+        # Try the folder view page
+        folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(folder_url, headers=headers, timeout=15)
         
         if response.status_code == 200:
-            # Look for image file patterns
-            file_pattern = r'id=([a-zA-Z0-9_-]{25,})'
-            file_ids = re.findall(file_pattern, response.text)
+            # Look for file ID patterns in the page source
+            # Google Drive uses specific patterns for file IDs (typically 33 or 44 chars)
+            file_id_pattern = r'\["([a-zA-Z0-9_-]{28,})"'
+            matches = re.findall(file_id_pattern, response.text)
             
-            for i, file_id in enumerate(set(file_ids)[:100]):
-                if file_id != folder_id:
+            # Deduplicate and filter
+            seen = set()
+            for match in matches:
+                if match != folder_id and match not in seen and len(match) >= 28:
+                    seen.add(match)
                     images.append({
-                        "name": f"Image {i+1}",
-                        "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                        "name": f"Image {len(images)+1}",
+                        "url": f"https://drive.google.com/uc?export=download&id={match}",
                         "source": "gdrive",
-                        "file_id": file_id
+                        "file_id": match
                     })
+                    
+                if len(images) >= 50:  # Limit to 50 images
+                    break
         
         if images:
+            st.success(f"✅ Found {len(images)} images in Google Drive folder")
             return images
-            
-        # If no images found, raise error
-        raise ValueError("Could not extract images from folder. Make sure the folder is public.")
+        
+        # If still no images, provide helpful error
+        st.warning("⚠️ Could not find images in folder. Please ensure:")
+        st.markdown("""
+        - The folder sharing is set to "Anyone with the link can view"
+        - The folder contains image files (jpg, png, etc.)
+        - Try using the folder ID directly instead of the full URL
+        """)
+        
+        return []
         
     except Exception as e:
-        st.error(f"❌ Error: {str(e)}")
-        st.info("💡 Make sure your Google Drive folder has 'Anyone with the link can view' permission")
+        st.error(f"❌ Error loading from Google Drive: {str(e)}")
         return []
 
 # -----------------------
@@ -438,7 +460,7 @@ if st.button("🚀 Load Gallery", type="primary", use_container_width=True):
 # -----------------------
 # Slideshow Display
 # -----------------------
-if st.session_state.images:
+if st.session_state.images and st.session_state.current_index < len(st.session_state.images):
     imgs = st.session_state.images
     total = len(imgs)
     idx = st.session_state.current_index
@@ -471,16 +493,35 @@ if st.session_state.images:
     st.markdown('<div class="image-frame">', unsafe_allow_html=True)
     
     if current_item["source"] == "gdrive" and "url" in current_item:
-        # Load single image from Google Drive
-        try:
-            st.image(
-                current_item["url"],
-                use_container_width=True,
-                output_format="auto"
-            )
-        except Exception as e:
-            st.error(f"❌ Error loading image: {current_item['name']}")
-            st.info(f"💡 Try opening directly: {current_item['url']}")
+        # Try multiple URL formats for Google Drive
+        file_id = current_item.get("file_id", "")
+        
+        # Try different Google Drive URL formats
+        urls_to_try = [
+            f"https://drive.google.com/uc?export=download&id={file_id}",
+            f"https://drive.google.com/uc?export=view&id={file_id}",
+            f"https://drive.google.com/thumbnail?id={file_id}&sz=w1000",
+        ]
+        
+        image_loaded = False
+        for url in urls_to_try:
+            try:
+                response = requests.get(url, timeout=10, allow_redirects=True)
+                if response.status_code == 200 and 'image' in response.headers.get('Content-Type', ''):
+                    from PIL import Image
+                    from io import BytesIO
+                    
+                    img = Image.open(BytesIO(response.content))
+                    st.image(img, use_container_width=True)
+                    image_loaded = True
+                    break
+            except:
+                continue
+        
+        if not image_loaded:
+            st.error(f"❌ Unable to load image: {current_item['name']}")
+            st.info(f"💡 File ID: {file_id}")
+            st.markdown(f"[Open in Google Drive](https://drive.google.com/file/d/{file_id}/view)")
     else:
         # Load single local image
         try:
@@ -637,4 +678,5 @@ else:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
 
