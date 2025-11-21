@@ -254,51 +254,62 @@ def get_gdrive_image_urls(folder_id: str):
     images = []
     
     try:
-        # Use the Drive API v3 to list files in the folder (works for public folders)
-        # This endpoint works without auth for public folders
-        api_url = f"https://www.googleapis.com/drive/v3/files"
-        params = {
-            'q': f"'{folder_id}' in parents and (mimeType contains 'image/')",
-            'fields': 'files(id,name,mimeType,thumbnailLink,webContentLink)',
-            'key': 'AIzaSyD_dummykey_forPublicAccess',  # Public API (no auth needed for public folders)
-        }
-        
-        # Note: For truly public folders, we construct direct URLs
-        # Each image will have a direct download link
-        response = requests.get(api_url, params=params, timeout=10)
+        # Method 1: Try to scrape the folder page to extract file IDs
+        folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
+        response = requests.get(folder_url, timeout=10)
         
         if response.status_code == 200:
-            data = response.json()
-            for file in data.get('files', []):
-                file_id = file['id']
+            # Extract file IDs from the HTML using regex
+            file_id_pattern = r'"([a-zA-Z0-9_-]{25,})"'
+            potential_ids = re.findall(file_id_pattern, response.text)
+            
+            # Filter for valid image file IDs (heuristic: appears multiple times in page)
+            from collections import Counter
+            id_counts = Counter(potential_ids)
+            
+            # Get IDs that appear more than once (likely actual file IDs)
+            valid_ids = [id for id, count in id_counts.items() if count >= 2 and id != folder_id]
+            
+            # Create direct image URLs for each file ID
+            for i, file_id in enumerate(valid_ids[:100]):  # Limit to 100 images
                 images.append({
-                    "name": file['name'],
+                    "name": f"Image {i+1} from Drive",
                     "url": f"https://drive.google.com/uc?export=view&id={file_id}",
-                    "thumbnail": file.get('thumbnailLink', ''),
                     "source": "gdrive",
                     "file_id": file_id
                 })
-        else:
-            # Fallback: return embed view of the folder itself
-            images.append({
-                "name": f"Google Drive Folder (Embedded View)",
-                "url": f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid",
-                "source": "gdrive",
-                "folder_id": folder_id,
-                "is_folder_embed": True
-            })
+            
+            if images:
+                return images
+        
+        # Method 2: Fallback - try to use the embeddedfolderview and extract from there
+        embed_url = f"https://drive.google.com/embeddedfolderview?id={folder_id}"
+        response = requests.get(embed_url, timeout=10)
+        
+        if response.status_code == 200:
+            # Look for image file patterns
+            file_pattern = r'id=([a-zA-Z0-9_-]{25,})'
+            file_ids = re.findall(file_pattern, response.text)
+            
+            for i, file_id in enumerate(set(file_ids)[:100]):
+                if file_id != folder_id:
+                    images.append({
+                        "name": f"Image {i+1}",
+                        "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                        "source": "gdrive",
+                        "file_id": file_id
+                    })
+        
+        if images:
+            return images
+            
+        # If no images found, raise error
+        raise ValueError("Could not extract images from folder. Make sure the folder is public.")
+        
     except Exception as e:
-        # Fallback to embedded folder view if API fails
-        st.warning(f"⚠️ Couldn't fetch individual images, using embedded folder view instead.")
-        images.append({
-            "name": f"Google Drive Folder (Embedded View)",
-            "url": f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid",
-            "source": "gdrive",
-            "folder_id": folder_id,
-            "is_folder_embed": True
-        })
-    
-    return images
+        st.error(f"❌ Error: {str(e)}")
+        st.info("💡 Make sure your Google Drive folder has 'Anyone with the link can view' permission")
+        return []
 
 # -----------------------
 # Get Public Drive Images (updated to use new function)
@@ -457,64 +468,38 @@ if st.session_state.images:
     
     current_item = imgs[idx]
     
-    if current_item.get("is_folder_embed"):
-        st.markdown(f"""
-        <div class="image-frame" style="height: 70vh;">
-            <iframe src="{current_item['url']}" width="100%" height="100%" frameborder="0" style="border-radius: 0.5rem;"></iframe>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div class="image-caption">
-            <span class="slide-counter">{idx + 1} / {total}</span>
-            <span>📁 {current_item["name"]}</span>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.info("💡 This is an embedded Google Drive folder view. Click on images to view them in full size.")
+    st.markdown('<div class="image-frame">', unsafe_allow_html=True)
     
-    elif current_item["source"] == "gdrive" and "url" in current_item:
-        st.markdown('<div class="image-frame">', unsafe_allow_html=True)
-        
+    if current_item["source"] == "gdrive" and "url" in current_item:
         # Load single image from Google Drive
         try:
             st.image(
                 current_item["url"],
-                caption=current_item["name"],
                 use_container_width=True,
                 output_format="auto"
             )
         except Exception as e:
             st.error(f"❌ Error loading image: {current_item['name']}")
             st.info(f"💡 Try opening directly: {current_item['url']}")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div class="image-caption">
-            <span class="slide-counter">{idx + 1} / {total}</span>
-            <span>☁️ {current_item["name"]}</span>
-        </div>
-        """, unsafe_allow_html=True)
-    
     else:
-        st.markdown('<div class="image-frame">', unsafe_allow_html=True)
-        
         # Load single local image
-        st.image(
-            current_item["path"],
-            use_container_width=True,
-            output_format="auto"
-        )
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown(f"""
-        <div class="image-caption">
-            <span class="slide-counter">{idx + 1} / {total}</span>
-            <span>📷 {current_item["name"]}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        try:
+            st.image(
+                current_item["path"],
+                use_container_width=True,
+                output_format="auto"
+            )
+        except Exception as e:
+            st.error(f"❌ Error loading image: {current_item['name']}")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown(f"""
+    <div class="image-caption">
+        <span class="slide-counter">{idx + 1} / {total}</span>
+        <span>{'☁️' if current_item['source'] == 'gdrive' else '📷'} {current_item["name"]}</span>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -652,3 +637,4 @@ else:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
