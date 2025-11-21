@@ -699,7 +699,7 @@ with st.sidebar:
     if source in ["Google Drive (public folder)", "Both"]:
         folder_url = st.text_input(
             "🔗 Google Drive Folder URL/ID",
-            value="",
+            value="https://drive.google.com/drive/folders/1LfSwuD7WxbS0ZdDeGo0hpiviUx6vMhqs?usp=share_link",
             placeholder="Paste your public folder link here...",
             help="Folder must have 'Anyone with the link can view' permission"
         )
