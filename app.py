@@ -1,90 +1,102 @@
 import streamlit as st
 import re
 import json
-from typing import List
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # -----------------------
 # Extract Folder ID
 # -----------------------
-def extract_folder_id(url: str) -> str:
+def extract_folder_id(url: str):
     patterns = [
         r'/folders/([a-zA-Z0-9_-]+)',
         r'id=([a-zA-Z0-9_-]+)',
         r'^([a-zA-Z0-9_-]+)$'
     ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    raise ValueError("Invalid folder URL")
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    raise ValueError("Invalid Google Drive folder link.")
 
 # -----------------------
-# Drive Service
+# Drive Client
 # -----------------------
-def get_drive_service(credentials_json):
-    credentials_dict = json.loads(credentials_json)
-    credentials = service_account.Credentials.from_service_account_info(
-        credentials_dict,
-        scopes=['https://www.googleapis.com/auth/drive.readonly']
+def get_drive(credentials_json):
+    cred_dict = json.loads(credentials_json)
+    creds = service_account.Credentials.from_service_account_info(
+        cred_dict, scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
-    return build('drive', 'v3', credentials=credentials)
+    return build("drive", "v3", credentials=creds)
 
 # -----------------------
-# Fetch All Images
+# Get Images (Fail-safe)
 # -----------------------
-def get_all_images_from_folder(folder_url: str, credentials_json: str) -> List[dict]:
+def get_images(folder_url, credentials_json):
     folder_id = extract_folder_id(folder_url)
-    service = get_drive_service(credentials_json)
+    service = get_drive(credentials_json)
 
     images = []
-    page_token = None
+    token = None
 
     while True:
-        results = service.files().list(
-            q=f"'{folder_id}' in parents and mimeType contains 'image/' and trashed=false",
-            fields="nextPageToken, files(id, name)",
+        res = service.files().list(
+            q=f"'{folder_id}' in parents and mimeType contains 'image/' and trashed = false",
+            fields="nextPageToken, files(id, name, thumbnailLink, webContentLink)",
             pageSize=1000,
-            pageToken=page_token
+            pageToken=token
         ).execute()
 
-        for file in results.get("files", []):
+        for f in res.get("files", []):
+            file_id = f["id"]
+
+            # multi fallback logic
+            url = None
+
+            # 1. thumbnail always loads (best fallback)
+            if f.get("thumbnailLink"):
+                url = f["thumbnailLink"]
+
+            # 2. public link
+            if not url and f.get("webContentLink"):
+                url = f["webContentLink"]
+
+            # 3. direct load link
+            if not url:
+                url = f"https://drive.google.com/uc?export=view&id={file_id}"
+
             images.append({
-                "name": file["name"],
-                "url": f"https://drive.google.com/uc?export=view&id={file['id']}"
+                "name": f["name"],
+                "url": url
             })
 
-        page_token = results.get("nextPageToken")
-        if not page_token:
+        token = res.get("nextPageToken")
+        if not token:
             break
 
     return images
 
 # -----------------------
-# Streamlit UI
+# UI
 # -----------------------
-st.set_page_config(page_title="Drive Image Loader", layout="wide")
-
 st.title("📁 Google Drive Image Loader")
 
 folder_url = st.text_input("Google Drive Folder URL")
-uploaded_file = st.file_uploader("Upload Google Service Account JSON", type=["json"])
 
-if uploaded_file and folder_url:
+creds_file = st.file_uploader("Upload Service Account JSON", type=["json"])
+
+if creds_file and folder_url:
     try:
-        creds_json = uploaded_file.read().decode("utf-8")
+        creds_json = creds_file.read().decode("utf-8")
 
         with st.spinner("Loading images..."):
-            images = get_all_images_from_folder(folder_url, creds_json)
+            imgs = get_images(folder_url, creds_json)
 
-        st.success(f"Loaded {len(images)} images!")
+        st.success(f"Loaded {len(imgs)} images")
 
-        for img in images:
+        for img in imgs:
             st.image(img["url"], caption=img["name"], use_column_width=True)
-            st.markdown("---")
+            st.write("---")
 
     except Exception as e:
         st.error(str(e))
-else:
-    st.info("Enter folder URL and upload credentials JSON to continue.")
