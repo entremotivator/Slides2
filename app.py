@@ -60,52 +60,86 @@ st.markdown("""
         margin-top: 0.5rem;
     }
     
-    /* Slideshow container */
+    /* Enhanced slideshow container with centered frame layout */
     .slideshow-container {
         position: relative;
-        max-width: 100%;
+        max-width: 1400px;
         margin: 2rem auto;
-        background: var(--background-light);
-        border-radius: 1rem;
-        padding: 2rem;
+        background: rgba(30, 41, 59, 0.6);
+        border-radius: 1.5rem;
+        padding: 3rem;
         box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(99, 102, 241, 0.2);
     }
     
-    /* Image styling */
-    .slideshow-image {
-        border-radius: 0.75rem;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-        transition: transform 0.3s ease;
+    /* Image frame with perfect centering */
+    .image-frame {
+        position: relative;
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto;
+        background: #000;
+        border-radius: 1rem;
+        overflow: hidden;
+        box-shadow: 0 15px 50px rgba(0, 0, 0, 0.7);
+        border: 8px solid rgba(99, 102, 241, 0.3);
     }
     
-    /* Caption styling */
+    .image-frame img {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 70vh;
+        object-fit: contain;
+        background: #000;
+    }
+    
+    /* Enhanced caption with slide counter */
     .image-caption {
         text-align: center;
-        font-size: 1.5rem;
+        font-size: 1.3rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin-top: 1.5rem;
-        padding: 1rem;
-        background: rgba(99, 102, 241, 0.1);
-        border-radius: 0.5rem;
-        border-left: 4px solid var(--primary-color);
+        margin-top: 2rem;
+        padding: 1.2rem 2rem;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+        border-radius: 0.75rem;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+    }
+    
+    .slide-counter {
+        display: inline-block;
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        padding: 0.4rem 1rem;
+        border-radius: 2rem;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
     }
     
     /* Progress bar */
     .progress-container {
         width: 100%;
-        height: 6px;
+        height: 8px;
         background: rgba(255,255,255,0.1);
-        border-radius: 3px;
+        border-radius: 4px;
         overflow: hidden;
         margin: 1.5rem 0;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
     }
     
     .progress-bar {
         height: 100%;
         background: linear-gradient(90deg, var(--primary-color), var(--accent));
-        border-radius: 3px;
+        border-radius: 4px;
         transition: width 0.3s ease;
+        box-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
     }
     
     /* Info cards */
@@ -123,36 +157,52 @@ st.markdown("""
         margin-top: 0;
     }
     
-    /* Stats */
+    /* Simplified stats container for cleaner look */
     .stats-container {
         display: flex;
-        justify-content: space-around;
-        margin: 2rem 0;
+        justify-content: center;
+        margin: 2rem 0 1rem 0;
         flex-wrap: wrap;
-        gap: 1rem;
+        gap: 1.5rem;
     }
     
     .stat-box {
-        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-        padding: 1.5rem 2rem;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+        padding: 1.2rem 2.5rem;
         border-radius: 1rem;
         text-align: center;
-        box-shadow: 0 5px 20px rgba(99, 102, 241, 0.3);
-        flex: 1;
-        min-width: 150px;
+        box-shadow: 0 5px 20px rgba(99, 102, 241, 0.2);
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        backdrop-filter: blur(10px);
+        min-width: 140px;
     }
     
     .stat-box h2 {
-        color: white;
+        color: var(--primary-color);
         font-size: 2.5rem;
         margin: 0;
         font-weight: 800;
+        text-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
     }
     
     .stat-box p {
-        color: rgba(255,255,255,0.9);
-        font-size: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.95rem;
         margin: 0.5rem 0 0 0;
+        font-weight: 500;
+    }
+    
+    /* Control buttons styling */
+    .stButton > button {
+        border-radius: 0.75rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 20px rgba(99, 102, 241, 0.4);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -330,16 +380,11 @@ if st.session_state.images:
     total = len(imgs)
     idx = st.session_state.current_index
     
-    # Stats display
     st.markdown(f"""
     <div class="stats-container">
         <div class="stat-box">
-            <h2>{total}</h2>
-            <p>Total Items</p>
-        </div>
-        <div class="stat-box">
-            <h2>{idx + 1}</h2>
-            <p>Current Item</p>
+            <h2>{idx + 1}/{total}</h2>
+            <p>Current Slide</p>
         </div>
         <div class="stat-box">
             <h2>{round((idx + 1) / total * 100)}%</h2>
@@ -356,56 +401,47 @@ if st.session_state.images:
     </div>
     """, unsafe_allow_html=True)
     
-    # Main slideshow container
     st.markdown('<div class="slideshow-container">', unsafe_allow_html=True)
     
     # Display current image/folder
     current_item = imgs[idx]
     
     if current_item.get("is_folder"):
-        # Display Google Drive folder embed
         st.markdown(f"""
-        <iframe src="{current_item['url']}" width="100%" height="600" frameborder="0"></iframe>
+        <div class="image-frame" style="height: 70vh;">
+            <iframe src="{current_item['url']}" width="100%" height="100%" frameborder="0" style="border-radius: 0.5rem;"></iframe>
+        </div>
         """, unsafe_allow_html=True)
         
         st.markdown(f"""
         <div class="image-caption">
-            📁 {current_item["name"]}
+            <span class="slide-counter">{idx + 1} / {total}</span>
+            <span>📁 {current_item["name"]}</span>
         </div>
         """, unsafe_allow_html=True)
         
-        st.info("💡 This is an embedded Google Drive folder view. Click on images to view them.")
+        st.info("💡 This is an embedded Google Drive folder view. Click on images to view them in full size.")
         
     else:
-        # Display local image
+        st.markdown('<div class="image-frame">', unsafe_allow_html=True)
         st.image(
             current_item["path"],
             use_container_width=True,
             output_format="auto"
         )
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        # Image caption
         st.markdown(f"""
         <div class="image-caption">
-            📷 {current_item["name"]}
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Item info
-    if show_info:
-        st.markdown(f"""
-        <div class="info-card">
-            <h3>Item Details</h3>
-            <p><strong>Name:</strong> {current_item["name"]}</p>
-            <p><strong>Source:</strong> {current_item["source"]}</p>
-            <p><strong>Position:</strong> {idx + 1} of {total}</p>
+            <span class="slide-counter">{idx + 1} / {total}</span>
+            <span>📷 {current_item["name"]}</span>
         </div>
         """, unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Controls
-    col1, col2, col3, col4, col5, col6, col7 = st.columns([1, 1, 1, 1, 1, 1, 1])
+    st.markdown("### 🎮 Slideshow Controls")
+    col1, col2, col3, col4, col5 = st.columns([1.5, 1, 1, 1, 1.5])
     
     with col1:
         if st.button("⏮️ First", use_container_width=True):
@@ -413,36 +449,60 @@ if st.session_state.images:
             st.rerun()
     
     with col2:
-        if st.button("⬅️ Previous", use_container_width=True):
+        if st.button("⬅️ Prev", use_container_width=True):
             st.session_state.current_index = max(0, idx - 1)
             st.rerun()
     
     with col3:
-        if st.button("⏸️ Pause" if st.session_state.autoplay else "▶️ Play", use_container_width=True):
+        if st.button("⏸️ Pause" if st.session_state.autoplay else "▶️ Play", use_container_width=True, type="primary"):
             st.session_state.autoplay = not st.session_state.autoplay
             st.rerun()
     
     with col4:
-        if st.button("⏹️ Stop", use_container_width=True):
-            st.session_state.autoplay = False
-            st.session_state.current_index = 0
-            st.rerun()
-    
-    with col5:
         if st.button("➡️ Next", use_container_width=True):
             st.session_state.current_index = min(total - 1, idx + 1)
             st.rerun()
     
-    with col6:
+    with col5:
         if st.button("⏭️ Last", use_container_width=True):
             st.session_state.current_index = total - 1
             st.rerun()
     
-    with col7:
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
         if st.button("🔄 Shuffle", use_container_width=True):
             import random
             st.session_state.current_index = random.randint(0, total - 1)
             st.rerun()
+    
+    with col2:
+        if st.button("⏹️ Stop & Reset", use_container_width=True):
+            st.session_state.autoplay = False
+            st.session_state.current_index = 0
+            st.rerun()
+    
+    with col3:
+        jump_to = st.selectbox(
+            "Jump to slide:",
+            range(1, total + 1),
+            index=idx,
+            label_visibility="collapsed"
+        )
+        if jump_to != idx + 1:
+            st.session_state.current_index = jump_to - 1
+            st.rerun()
+    
+    # Show details in expander to keep view clean
+    if show_info:
+        with st.expander("📋 View Item Details"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Name", current_item["name"])
+            with col2:
+                st.metric("Source", current_item["source"].upper())
+            with col3:
+                st.metric("Position", f"{idx + 1} of {total}")
     
     # Auto-advance logic
     if st.session_state.autoplay:
