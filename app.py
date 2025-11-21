@@ -3,7 +3,6 @@ import re
 import time
 import os
 from pathlib import Path
-import requests
 
 # -----------------------
 # Page Configuration
@@ -16,7 +15,7 @@ st.set_page_config(
 )
 
 # -----------------------
-# Custom CSS Theme
+# Custom CSS
 # -----------------------
 st.markdown("""
 <style>
@@ -204,6 +203,13 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 5px 20px rgba(99, 102, 241, 0.4);
     }
+    
+    .iframe-container {
+        background: white;
+        border-radius: 1rem;
+        padding: 1rem;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -217,14 +223,29 @@ def extract_folder_id(url: str):
         r'id=([a-zA-Z0-9_-]+)',
         r'^([a-zA-Z0-9_-]+)$'
     ]
-    for p in patterns:
-        m = re.search(p, url)
-        if m:
-            return m.group(1)
-    raise ValueError("Invalid Google Drive folder link.")
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+def get_files_from_folder(folder_id: str):
+    """
+    Extract file IDs from a public Google Drive folder
+    Note: This uses web scraping as a fallback for public folders without auth
+    """
+    try:
+        # Use the embedded folder view URL
+        url = f"https://drive.google.com/embeddedfolderview?id={folder_id}"
+        
+        # For demo purposes, return the file IDs you need to manually input
+        # Since we can't scrape without auth, we'll let user paste file IDs
+        return []
+    except:
+        return []
 
 # -----------------------
-# Get Local Images
+# Local Image Support
 # -----------------------
 def get_local_images(folder_path="public"):
     """Get images from local public folder"""
@@ -247,7 +268,7 @@ def get_local_images(folder_path="public"):
     return images
 
 # -----------------------
-# Get Public Drive Images
+# Enhanced Public Drive Images Function
 # -----------------------
 def get_public_drive_images(folder_id: str):
     """
@@ -257,11 +278,9 @@ def get_public_drive_images(folder_id: str):
     images = []
     
     # For publicly shared folders, we construct direct URLs
-    # Note: This works for folders with link sharing enabled
     base_url = f"https://drive.google.com/drive/folders/{folder_id}"
     
     # Create direct image URLs - these work for public folders
-    # We'll return a message that images should be accessed via iframe or direct links
     images.append({
         "name": f"Google Drive Folder: {folder_id}",
         "url": f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid",
@@ -283,16 +302,8 @@ if 'images' not in st.session_state:
     st.session_state.images = []
 if 'slideshow_speed' not in st.session_state:
     st.session_state.slideshow_speed = 3
-
-# -----------------------
-# Header
-# -----------------------
-st.markdown("""
-<div class="main-header">
-    <h1>🎬 Drive Slideshow Gallery</h1>
-    <p>View images from local public folder and Google Drive (no auth required)</p>
-</div>
-""", unsafe_allow_html=True)
+if 'file_ids' not in st.session_state:
+    st.session_state.file_ids = []
 
 # -----------------------
 # Sidebar Configuration
@@ -303,18 +314,28 @@ with st.sidebar:
     # Source selection
     source = st.radio(
         "📁 Image Source",
-        ["Local (public folder)", "Google Drive (public folder)", "Both"],
+        ["Google Drive Files", "Google Drive Folder", "Local (public folder)", "Both"],
         help="Choose where to load images from"
     )
     
     # Google Drive folder URL (if needed)
     folder_url = None
-    if source in ["Google Drive (public folder)", "Both"]:
+    if source in ["Google Drive Folder", "Both"]:
         folder_url = st.text_input(
             "🔗 Google Drive Folder URL/ID",
             value="https://drive.google.com/drive/folders/1LfSwuD7WxbS0ZdDeGo0hpiviUx6vMhqs?usp=share_link",
             placeholder="Paste your public folder link here...",
             help="Folder must have 'Anyone with the link can view' permission"
+        )
+    
+    # Google Drive file IDs input
+    file_ids_input = None
+    if source == "Google Drive Files":
+        file_ids_input = st.text_area(
+            "📎 File IDs (one per line)",
+            height=150,
+            help="Paste Google Drive file URLs or IDs, one per line",
+            placeholder="https://drive.google.com/file/d/1ABC.../view\nor just: 1ABC..."
         )
     
     st.markdown("---")
@@ -344,11 +365,35 @@ with st.sidebar:
         st.progress(current_pos / total_images)
 
 # -----------------------
-# Load Images
+# Load Gallery Button
 # -----------------------
 if st.button("🚀 Load Gallery", type="primary", use_container_width=True):
     with st.spinner("🔄 Loading images..."):
         all_images = []
+        
+        # Load from Google Drive file IDs
+        if source == "Google Drive Files" and file_ids_input:
+            lines = file_ids_input.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                # Extract file ID
+                match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', line)
+                if match:
+                    file_id = match.group(1)
+                elif re.match(r'^[a-zA-Z0-9_-]+$', line):
+                    file_id = line
+                else:
+                    continue
+                
+                all_images.append({
+                    "name": f"Image {file_id[:8]}...",
+                    "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                    "source": "gdrive_file",
+                    "file_id": file_id
+                })
+            st.success(f"✅ Loaded {len(all_images)} files from Google Drive")
         
         # Load local images
         if source in ["Local (public folder)", "Both"]:
@@ -356,13 +401,14 @@ if st.button("🚀 Load Gallery", type="primary", use_container_width=True):
             all_images.extend(local_imgs)
             st.success(f"✅ Loaded {len(local_imgs)} images from local folder")
         
-        # Load Google Drive images
-        if source in ["Google Drive (public folder)", "Both"] and folder_url:
+        # Load Google Drive folder
+        if source in ["Google Drive Folder", "Both"] and folder_url:
             try:
                 folder_id = extract_folder_id(folder_url)
-                gdrive_imgs = get_public_drive_images(folder_id)
-                all_images.extend(gdrive_imgs)
-                st.success(f"✅ Added Google Drive folder link")
+                if folder_id:
+                    gdrive_imgs = get_public_drive_images(folder_id)
+                    all_images.extend(gdrive_imgs)
+                    st.success(f"✅ Added Google Drive folder link")
             except Exception as e:
                 st.error(f"❌ Error loading Google Drive: {str(e)}")
         
@@ -373,7 +419,7 @@ if st.button("🚀 Load Gallery", type="primary", use_container_width=True):
             st.balloons()
 
 # -----------------------
-# Slideshow Display
+# Full Slideshow Display
 # -----------------------
 if st.session_state.images:
     imgs = st.session_state.images
@@ -421,6 +467,22 @@ if st.session_state.images:
         """, unsafe_allow_html=True)
         
         st.info("💡 This is an embedded Google Drive folder view. Click on images to view them in full size.")
+        
+    elif current_item.get("source") == "gdrive_file":
+        st.markdown('<div class="image-frame">', unsafe_allow_html=True)
+        st.markdown(f"""
+            <div style="text-align: center;">
+                <img src="{current_item['url']}" style="max-width: 100%; max-height: 70vh; object-fit: contain;" />
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="image-caption">
+            <span class="slide-counter">{idx + 1} / {total}</span>
+            <span>📷 {current_item["name"]}</span>
+        </div>
+        """, unsafe_allow_html=True)
         
     else:
         st.markdown('<div class="image-frame">', unsafe_allow_html=True)
@@ -471,7 +533,7 @@ if st.session_state.images:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("🔄 Shuffle", use_container_width=True):
+        if st.button("🔀 Shuffle", use_container_width=True):
             import random
             st.session_state.current_index = random.randint(0, total - 1)
             st.rerun()
@@ -504,7 +566,7 @@ if st.session_state.images:
             with col3:
                 st.metric("Position", f"{idx + 1} of {total}")
     
-    # Auto-advance logic
+    # Auto-advance logic with 3-second default
     if st.session_state.autoplay:
         time.sleep(slideshow_speed)
         st.session_state.current_index = (idx + 1) % total
@@ -517,17 +579,18 @@ else:
         <h3>👋 Welcome to Drive Slideshow Gallery!</h3>
         <p>Get started by following these steps:</p>
         <ol>
-            <li>📁 Select your image source (local folder, Google Drive, or both)</li>
-            <li>🔗 If using Google Drive, paste your public folder URL</li>
+            <li>📁 Select your image source from the sidebar</li>
+            <li>🔗 Enter Google Drive folder URL or file IDs, or use local images</li>
             <li>🚀 Click "Load Gallery" to start</li>
-            <li>▶️ Use the controls to navigate or enable autoplay</li>
+            <li>▶️ Use the controls to navigate or enable autoplay for 3-second rotation</li>
         </ol>
         <p><strong>Features:</strong></p>
         <ul>
             <li>✨ No authentication required</li>
             <li>📁 Support for local public folder</li>
-            <li>☁️ Support for public Google Drive folders</li>
-            <li>⏯️ Auto-play with customizable timing</li>
+            <li>☁️ Support for public Google Drive folders and individual files</li>
+            <li>⏯️ Auto-play with 3-second default (customizable 1-15 seconds)</li>
+            <li>🖼️ Full-screen one-by-one PowerPoint-style view</li>
             <li>📊 Real-time progress tracking</li>
             <li>🎨 Beautiful dark theme with gradients</li>
             <li>🔀 Shuffle mode for random viewing</li>
@@ -535,7 +598,7 @@ else:
         <p><strong>Setup Instructions:</strong></p>
         <ul>
             <li>📂 Place images in the "public" folder for local viewing</li>
-            <li>🔓 For Google Drive, ensure folder has "Anyone with the link can view" permission</li>
+            <li>🔓 For Google Drive, ensure folders/files have "Anyone with the link can view" permission</li>
         </ul>
     </div>
     """, unsafe_allow_html=True)
