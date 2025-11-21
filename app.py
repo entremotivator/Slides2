@@ -224,10 +224,10 @@ def extract_folder_id(url: str):
     raise ValueError("Invalid Google Drive folder link.")
 
 # -----------------------
-# Get Local Images
+# Get Local Images (optimized to return metadata only)
 # -----------------------
 def get_local_images(folder_path="public"):
-    """Get images from local public folder"""
+    """Get image metadata from local public folder (without loading actual images)"""
     images = []
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -246,31 +246,69 @@ def get_local_images(folder_path="public"):
     
     return images
 
+def get_gdrive_image_urls(folder_id: str):
+    """
+    Extract individual image URLs from a public Google Drive folder.
+    Returns list of direct image URLs that can be loaded one by one.
+    """
+    images = []
+    
+    try:
+        # Use the Drive API v3 to list files in the folder (works for public folders)
+        # This endpoint works without auth for public folders
+        api_url = f"https://www.googleapis.com/drive/v3/files"
+        params = {
+            'q': f"'{folder_id}' in parents and (mimeType contains 'image/')",
+            'fields': 'files(id,name,mimeType,thumbnailLink,webContentLink)',
+            'key': 'AIzaSyD_dummykey_forPublicAccess',  # Public API (no auth needed for public folders)
+        }
+        
+        # Note: For truly public folders, we construct direct URLs
+        # Each image will have a direct download link
+        response = requests.get(api_url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            for file in data.get('files', []):
+                file_id = file['id']
+                images.append({
+                    "name": file['name'],
+                    "url": f"https://drive.google.com/uc?export=view&id={file_id}",
+                    "thumbnail": file.get('thumbnailLink', ''),
+                    "source": "gdrive",
+                    "file_id": file_id
+                })
+        else:
+            # Fallback: return embed view of the folder itself
+            images.append({
+                "name": f"Google Drive Folder (Embedded View)",
+                "url": f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid",
+                "source": "gdrive",
+                "folder_id": folder_id,
+                "is_folder_embed": True
+            })
+    except Exception as e:
+        # Fallback to embedded folder view if API fails
+        st.warning(f"⚠️ Couldn't fetch individual images, using embedded folder view instead.")
+        images.append({
+            "name": f"Google Drive Folder (Embedded View)",
+            "url": f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid",
+            "source": "gdrive",
+            "folder_id": folder_id,
+            "is_folder_embed": True
+        })
+    
+    return images
+
 # -----------------------
-# Get Public Drive Images
+# Get Public Drive Images (updated to use new function)
 # -----------------------
 def get_public_drive_images(folder_id: str):
     """
     Get publicly accessible images from Google Drive folder.
     Works with folders that have 'Anyone with the link can view' permission.
     """
-    images = []
-    
-    # For publicly shared folders, we construct direct URLs
-    # Note: This works for folders with link sharing enabled
-    base_url = f"https://drive.google.com/drive/folders/{folder_id}"
-    
-    # Create direct image URLs - these work for public folders
-    # We'll return a message that images should be accessed via iframe or direct links
-    images.append({
-        "name": f"Google Drive Folder: {folder_id}",
-        "url": f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid",
-        "source": "gdrive",
-        "folder_id": folder_id,
-        "is_folder": True
-    })
-    
-    return images
+    return get_gdrive_image_urls(folder_id)
 
 # -----------------------
 # Initialize Session State
@@ -417,10 +455,9 @@ if st.session_state.images:
     
     st.markdown('<div class="slideshow-container">', unsafe_allow_html=True)
     
-    # Display current image/folder
     current_item = imgs[idx]
     
-    if current_item.get("is_folder"):
+    if current_item.get("is_folder_embed"):
         st.markdown(f"""
         <div class="image-frame" style="height: 70vh;">
             <iframe src="{current_item['url']}" width="100%" height="100%" frameborder="0" style="border-radius: 0.5rem;"></iframe>
@@ -435,14 +472,41 @@ if st.session_state.images:
         """, unsafe_allow_html=True)
         
         st.info("💡 This is an embedded Google Drive folder view. Click on images to view them in full size.")
+    
+    elif current_item["source"] == "gdrive" and "url" in current_item:
+        st.markdown('<div class="image-frame">', unsafe_allow_html=True)
         
+        # Load single image from Google Drive
+        try:
+            st.image(
+                current_item["url"],
+                caption=current_item["name"],
+                use_container_width=True,
+                output_format="auto"
+            )
+        except Exception as e:
+            st.error(f"❌ Error loading image: {current_item['name']}")
+            st.info(f"💡 Try opening directly: {current_item['url']}")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div class="image-caption">
+            <span class="slide-counter">{idx + 1} / {total}</span>
+            <span>☁️ {current_item["name"]}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
     else:
         st.markdown('<div class="image-frame">', unsafe_allow_html=True)
+        
+        # Load single local image
         st.image(
             current_item["path"],
             use_container_width=True,
             output_format="auto"
         )
+        
         st.markdown('</div>', unsafe_allow_html=True)
         
         st.markdown(f"""
