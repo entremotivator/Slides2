@@ -283,6 +283,8 @@ if 'images' not in st.session_state:
     st.session_state.images = []
 if 'slideshow_speed' not in st.session_state:
     st.session_state.slideshow_speed = 3
+if 'loop_mode' not in st.session_state:
+    st.session_state.loop_mode = True
 
 # -----------------------
 # Header
@@ -330,6 +332,13 @@ with st.sidebar:
     )
     st.session_state.slideshow_speed = slideshow_speed
     
+    loop_mode = st.checkbox(
+        "🔁 Loop Slideshow", 
+        value=st.session_state.loop_mode,
+        help="Automatically restart from beginning after last slide"
+    )
+    st.session_state.loop_mode = loop_mode
+    
     show_info = st.checkbox("ℹ️ Show Image Details", value=True)
     
     st.markdown("---")
@@ -342,6 +351,11 @@ with st.sidebar:
         st.metric("Total Items", total_images)
         st.metric("Current Position", f"{current_pos} of {total_images}")
         st.progress(current_pos / total_images)
+        
+        if st.session_state.loop_mode:
+            st.success("🔁 Loop Mode: ON")
+        else:
+            st.info("🔁 Loop Mode: OFF")
 
 # -----------------------
 # Load Images
@@ -450,7 +464,10 @@ if st.session_state.images:
     
     with col2:
         if st.button("⬅️ Prev", use_container_width=True):
-            st.session_state.current_index = max(0, idx - 1)
+            if idx == 0 and st.session_state.loop_mode:
+                st.session_state.current_index = total - 1
+            else:
+                st.session_state.current_index = max(0, idx - 1)
             st.rerun()
     
     with col3:
@@ -460,7 +477,10 @@ if st.session_state.images:
     
     with col4:
         if st.button("➡️ Next", use_container_width=True):
-            st.session_state.current_index = min(total - 1, idx + 1)
+            if idx == total - 1 and st.session_state.loop_mode:
+                st.session_state.current_index = 0
+            else:
+                st.session_state.current_index = min(total - 1, idx + 1)
             st.rerun()
     
     with col5:
@@ -504,10 +524,16 @@ if st.session_state.images:
             with col3:
                 st.metric("Position", f"{idx + 1} of {total}")
     
-    # Auto-advance logic
     if st.session_state.autoplay:
         time.sleep(slideshow_speed)
-        st.session_state.current_index = (idx + 1) % total
+        # If at last slide, loop back to start if loop mode is on
+        if idx == total - 1 and st.session_state.loop_mode:
+            st.session_state.current_index = 0
+        elif idx < total - 1:
+            st.session_state.current_index = idx + 1
+        else:
+            # At end and no loop - stop autoplay
+            st.session_state.autoplay = False
         st.rerun()
 
 else:
@@ -531,6 +557,7 @@ else:
             <li>📊 Real-time progress tracking</li>
             <li>🎨 Beautiful dark theme with gradients</li>
             <li>🔀 Shuffle mode for random viewing</li>
+            <li>🔁 Loop mode for continuous slideshow</li>
         </ul>
         <p><strong>Setup Instructions:</strong></p>
         <ul>
@@ -555,6 +582,9 @@ else:
             <h2>⚡</h2>
             <p>No Auth Needed</p>
         </div>
+        <div class="stat-box">
+            <h2>🔁</h2>
+            <p>Loop Mode Available</p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
-
