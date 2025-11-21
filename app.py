@@ -1,13 +1,15 @@
 import streamlit as st
 import re
 import time
+import os
+from pathlib import Path
 
 # -----------------------
 # Page Configuration
 # -----------------------
 st.set_page_config(
-    page_title="Google Drive Gallery",
-    page_icon="📁",
+    page_title="Google Drive Slideshow",
+    page_icon="🎬",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -17,100 +19,147 @@ st.set_page_config(
 # -----------------------
 st.markdown("""
 <style>
+    :root {
+        --primary-color: #6366f1;
+        --secondary-color: #8b5cf6;
+        --background-dark: #0f172a;
+        --background-light: #1e293b;
+        --text-primary: #f1f5f9;
+        --text-secondary: #94a3b8;
+        --accent: #f59e0b;
+    }
+    
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
     }
     
     .main-header {
         text-align: center;
-        padding: 2rem;
-        background: rgba(255, 255, 255, 0.1);
+        padding: 2rem 0;
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
         border-radius: 1rem;
         margin-bottom: 2rem;
-        backdrop-filter: blur(10px);
+        box-shadow: 0 10px 40px rgba(99, 102, 241, 0.3);
     }
     
     .main-header h1 {
         color: white;
-        font-size: 2.5rem;
-        font-weight: 700;
+        font-size: 3rem;
+        font-weight: 800;
         margin: 0;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
     }
     
-    .iframe-container {
-        background: white;
-        border-radius: 1rem;
-        padding: 1rem;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    .main-header p {
+        color: rgba(255,255,255,0.9);
+        font-size: 1.2rem;
+        margin-top: 0.5rem;
     }
     
-    /* Added slideshow fullscreen styles */
     .slideshow-container {
-        background: black;
-        border-radius: 1rem;
+        position: relative;
+        max-width: 100%;
+        height: 85vh;
+        margin: 0 auto;
+        background: rgba(30, 41, 59, 0.6);
+        border-radius: 1.5rem;
         padding: 2rem;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(99, 102, 241, 0.2);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    .image-frame {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #000;
+        border-radius: 1rem;
+        overflow: hidden;
+        box-shadow: 0 15px 50px rgba(0, 0, 0, 0.7);
+        border: 8px solid rgba(99, 102, 241, 0.3);
         display: flex;
         align-items: center;
         justify-content: center;
-        min-height: 600px;
     }
     
-    .slideshow-image {
+    .image-frame img {
         max-width: 100%;
-        max-height: 80vh;
+        max-height: 100%;
+        width: auto;
+        height: auto;
         object-fit: contain;
-        border-radius: 0.5rem;
+    }
+    
+    .image-caption {
+        text-align: center;
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-top: 1.5rem;
+        padding: 1rem 2rem;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+        border-radius: 0.75rem;
+        border: 1px solid rgba(99, 102, 241, 0.3);
     }
     
     .slide-counter {
+        display: inline-block;
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
         color: white;
-        text-align: center;
-        font-size: 1.2rem;
-        margin-top: 1rem;
-        font-weight: 500;
+        padding: 0.4rem 1rem;
+        border-radius: 2rem;
+        font-size: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        margin-right: 1rem;
+    }
+    
+    .progress-container {
+        width: 100%;
+        height: 8px;
+        background: rgba(255,255,255,0.1);
+        border-radius: 4px;
+        overflow: hidden;
+        margin: 1rem 0;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    }
+    
+    .progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary-color), var(--accent));
+        border-radius: 4px;
+        transition: width 0.3s ease;
+        box-shadow: 0 0 15px rgba(99, 102, 241, 0.6);
+    }
+    
+    .stButton > button {
+        border-radius: 0.75rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 20px rgba(99, 102, 241, 0.4);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------
-# Extract Folder ID
-# -----------------------
-def extract_folder_id(url: str):
-    """Extract folder ID from various Google Drive URL formats"""
-    patterns = [
-        r'/folders/([a-zA-Z0-9_-]+)',
-        r'id=([a-zA-Z0-9_-]+)',
-        r'^([a-zA-Z0-9_-]+)$'
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    return None
+FOLDER_ID = "1LfSwuD7WxbS0ZdDeGo0hpiviUx6vMhqs"
+FOLDER_URL = f"https://drive.google.com/drive/folders/{FOLDER_ID}?usp=sharing"
 
-def get_files_from_folder(folder_id: str):
-    """
-    Extract file IDs from a public Google Drive folder
-    Note: This uses web scraping as a fallback for public folders without auth
-    """
-    try:
-        # Use the embedded folder view URL
-        url = f"https://drive.google.com/embeddedfolderview?id={folder_id}"
-        
-        # For demo purposes, return the file IDs you need to manually input
-        # Since we can't scrape without auth, we'll let user paste file IDs
-        return []
-    except:
-        return []
-
-# -----------------------
-# Initialize Session State
-# -----------------------
-if 'current_slide' not in st.session_state:
-    st.session_state.current_slide = 0
-if 'slideshow_active' not in st.session_state:
-    st.session_state.slideshow_active = False
+if 'current_index' not in st.session_state:
+    st.session_state.current_index = 0
+if 'autoplay' not in st.session_state:
+    st.session_state.autoplay = True  # Start with autoplay on
+if 'slideshow_speed' not in st.session_state:
+    st.session_state.slideshow_speed = 3
 if 'file_ids' not in st.session_state:
     st.session_state.file_ids = []
 
@@ -119,212 +168,160 @@ if 'file_ids' not in st.session_state:
 # -----------------------
 st.markdown("""
 <div class="main-header">
-    <h1>📁 Google Drive Live Gallery</h1>
-    <p style="color: rgba(255,255,255,0.9); margin-top: 0.5rem;">View your public Google Drive folder in real-time</p>
+    <h1>🎬 Google Drive Slideshow</h1>
+    <p>One-by-one fullscreen image viewer with 3-second auto-rotation</p>
 </div>
 """, unsafe_allow_html=True)
 
-# -----------------------
-# Default Folder URL
-# -----------------------
-default_folder_url = "https://drive.google.com/drive/folders/1LfSwuD7WxbS0ZdDeGo0hpiviUx6vMhqs?usp=sharing"
-
-# Input for folder URL (optional - user can change it)
-folder_url = st.text_input(
-    "Google Drive Folder URL (public)",
-    value=default_folder_url,
-    help="Paste a public Google Drive folder link here"
-)
-
-# Extract folder ID
-folder_id = extract_folder_id(folder_url)
-
-if folder_id:
-    st.success(f"✅ Folder ID detected: `{folder_id}`")
+with st.sidebar:
+    st.markdown("## 🎨 Configuration")
     
-    mode = st.radio(
-        "Mode",
-        ["Browse Folder", "Slideshow"],
-        horizontal=True,
-        help="Browse to explore files, or Slideshow for auto-rotating presentation"
+    st.info(f"📁 **Folder:** [Open in Drive]({FOLDER_URL})")
+    
+    file_ids_input = st.text_area(
+        "📎 Paste File IDs (one per line)",
+        height=200,
+        help="Get file IDs from your Google Drive files. Right-click on each image → Get link → Copy the ID",
+        placeholder="1ABC123xyz...\n2DEF456uvw...\n3GHI789rst..."
     )
     
-    if mode == "Browse Folder":
-        # Original browse mode
-        col1, col2 = st.columns(2)
-        with col1:
-            view_mode = st.selectbox(
-                "View Mode",
-                ["Grid View", "List View"],
-                index=0
-            )
-        
-        with col2:
-            iframe_height = st.slider(
-                "Viewer Height",
-                min_value=400,
-                max_value=1200,
-                value=800,
-                step=50,
-                help="Adjust the height of the Drive viewer"
-            )
-        
-        st.markdown("---")
-        
-        # Create embedded URL based on view mode
-        if view_mode == "Grid View":
-            embed_url = f"https://drive.google.com/embeddedfolderview?id={folder_id}#grid"
-        else:
-            embed_url = f"https://drive.google.com/embeddedfolderview?id={folder_id}#list"
-        
-        # Display the embedded Google Drive folder
-        st.markdown('<div class="iframe-container">', unsafe_allow_html=True)
-        
-        st.components.v1.iframe(
-            src=embed_url,
-            height=iframe_height,
-            scrolling=True
-        )
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("---")
     
-    else:
-        st.markdown("### 🎬 Slideshow Mode")
-        
-        # File IDs input
-        file_ids_input = st.text_area(
-            "Enter Google Drive File IDs (one per line)",
-            height=150,
-            help="Get file IDs from 'Share > Copy link' for each image. Paste the full URL or just the ID.",
-            placeholder="https://drive.google.com/file/d/1ABC123.../view\nhttps://drive.google.com/file/d/1XYZ789.../view\nor just:\n1ABC123...\n1XYZ789..."
-        )
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            rotation_speed = st.slider(
-                "Rotation Speed (seconds)",
-                min_value=1,
-                max_value=10,
-                value=3,
-                help="How long each slide displays"
-            )
-        
-        with col2:
-            auto_start = st.checkbox("Auto-start slideshow", value=True)
-        
-        if file_ids_input:
-            # Parse file IDs from input
+    st.markdown("## ⚙️ Settings")
+    
+    slideshow_speed = st.slider(
+        "⏱️ Slide Duration (seconds)",
+        min_value=1,
+        max_value=15,
+        value=st.session_state.slideshow_speed
+    )
+    st.session_state.slideshow_speed = slideshow_speed
+    
+    if st.button("🚀 Load Slideshow", type="primary", use_container_width=True):
+        if file_ids_input.strip():
             lines = file_ids_input.strip().split('\n')
-            parsed_ids = []
+            file_ids = []
+            
             for line in lines:
                 line = line.strip()
                 if not line:
                     continue
-                # Try to extract file ID from URL or use as-is
+                # Extract file ID from URL or use as-is
                 match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', line)
                 if match:
-                    parsed_ids.append(match.group(1))
+                    file_ids.append(match.group(1))
                 elif re.match(r'^[a-zA-Z0-9_-]+$', line):
-                    parsed_ids.append(line)
+                    file_ids.append(line)
             
-            st.session_state.file_ids = parsed_ids
-            
-            if parsed_ids:
-                st.success(f"✅ Found {len(parsed_ids)} files")
-                
-                st.markdown("---")
-                
-                # Slideshow controls
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    if st.button("⏮️ Previous"):
-                        st.session_state.current_slide = (st.session_state.current_slide - 1) % len(parsed_ids)
-                        st.rerun()
-                
-                with col2:
-                    if st.button("⏯️ Play/Pause"):
-                        st.session_state.slideshow_active = not st.session_state.slideshow_active
-                        st.rerun()
-                
-                with col3:
-                    if st.button("⏭️ Next"):
-                        st.session_state.current_slide = (st.session_state.current_slide + 1) % len(parsed_ids)
-                        st.rerun()
-                
-                with col4:
-                    if st.button("🔄 Reset"):
-                        st.session_state.current_slide = 0
-                        st.session_state.slideshow_active = False
-                        st.rerun()
-                
-                # Auto-start if enabled
-                if auto_start and not st.session_state.slideshow_active:
-                    st.session_state.slideshow_active = True
-                
-                # Display current slide
-                current_file_id = parsed_ids[st.session_state.current_slide]
-                
-                st.markdown('<div class="slideshow-container">', unsafe_allow_html=True)
-                
-                # Use Google Drive thumbnail/preview URL for images
-                image_url = f"https://drive.google.com/uc?export=view&id={current_file_id}"
-                
-                st.markdown(f"""
-                    <div style="text-align: center;">
-                        <img src="{image_url}" class="slideshow-image" />
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown('</div>', unsafe_allow_html=True)
-                
-                # Slide counter
-                st.markdown(f"""
-                    <div class="slide-counter">
-                        Slide {st.session_state.current_slide + 1} of {len(parsed_ids)}
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # Auto-advance if slideshow is active
-                if st.session_state.slideshow_active:
-                    time.sleep(rotation_speed)
-                    st.session_state.current_slide = (st.session_state.current_slide + 1) % len(parsed_ids)
-                    st.rerun()
+            if file_ids:
+                st.session_state.file_ids = file_ids
+                st.session_state.current_index = 0
+                st.session_state.autoplay = True
+                st.success(f"✅ Loaded {len(file_ids)} images!")
+                st.rerun()
             else:
-                st.warning("⚠️ No valid file IDs found. Please enter valid Google Drive file URLs or IDs.")
+                st.error("❌ No valid file IDs found")
         else:
-            st.info("""
-            **How to create a slideshow:**
-            1. Open your Google Drive folder
-            2. For each image, right-click and select "Get link"
-            3. Make sure the file is set to "Anyone with the link can view"
-            4. Copy the link and paste it in the text area above (one per line)
-            5. The slideshow will automatically start with 3-second rotation
-            """)
+            st.warning("⚠️ Please paste file IDs first")
+
+if st.session_state.file_ids:
+    file_ids = st.session_state.file_ids
+    total = len(file_ids)
+    idx = st.session_state.current_index
+    current_file_id = file_ids[idx]
     
-    # Additional info
-    st.markdown("---")
-    st.markdown("""
-    ### 💡 Features
-    - **No Authentication Required** - View public folders directly
-    - **Browse Mode** - Explore your folder with grid or list view
-    - **Slideshow Mode** - Full PowerPoint-style presentation with 3-second auto-rotation
-    - **Live Updates** - See changes to the folder in real-time
-    - **Interactive Controls** - Play, pause, navigate slides manually
-    """)
-    
-    # Direct link
+    # Progress indicator
+    progress_percentage = ((idx + 1) / total) * 100
     st.markdown(f"""
-    ### 🔗 Direct Links
-    - [Open in Google Drive]({folder_url})
-    """)
+    <div class="progress-container">
+        <div class="progress-bar" style="width: {progress_percentage}%"></div>
+    </div>
+    """, unsafe_allow_html=True)
     
+    # Full-screen image display
+    st.markdown('<div class="slideshow-container">', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="image-frame">
+        <img src="https://drive.google.com/uc?export=view&id={current_file_id}" alt="Slide {idx + 1}" />
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Caption with counter
+    st.markdown(f"""
+    <div class="image-caption">
+        <span class="slide-counter">{idx + 1} / {total}</span>
+        <span>Image from Google Drive</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Controls
+    st.markdown("### 🎮 Controls")
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        if st.button("⏮️ First", use_container_width=True):
+            st.session_state.current_index = 0
+            st.rerun()
+    
+    with col2:
+        if st.button("⬅️ Prev", use_container_width=True):
+            st.session_state.current_index = (idx - 1) % total
+            st.rerun()
+    
+    with col3:
+        if st.button("⏸️ Pause" if st.session_state.autoplay else "▶️ Play", use_container_width=True, type="primary"):
+            st.session_state.autoplay = not st.session_state.autoplay
+            st.rerun()
+    
+    with col4:
+        if st.button("➡️ Next", use_container_width=True):
+            st.session_state.current_index = (idx + 1) % total
+            st.rerun()
+    
+    with col5:
+        if st.button("⏭️ Last", use_container_width=True):
+            st.session_state.current_index = total - 1
+            st.rerun()
+    
+    # Auto-advance with configured speed
+    if st.session_state.autoplay:
+        time.sleep(st.session_state.slideshow_speed)
+        st.session_state.current_index = (idx + 1) % total
+        st.rerun()
+
 else:
-    st.error("❌ Invalid Google Drive folder URL. Please enter a valid public folder link.")
-    st.info("""
-    **How to get a public folder link:**
-    1. Open your Google Drive folder
-    2. Right-click and select "Share"
-    3. Click "Change to anyone with the link"
-    4. Set permission to "Viewer"
-    5. Copy the link and paste it above
-    """)
+    st.markdown("""
+    <div style="max-width: 800px; margin: 2rem auto; background: rgba(30, 41, 59, 0.6); padding: 2rem; border-radius: 1rem; border: 1px solid rgba(99, 102, 241, 0.2);">
+        <h3 style="color: var(--primary-color);">👋 Welcome!</h3>
+        <p style="color: var(--text-primary);">This slideshow displays images one-by-one from your Google Drive folder.</p>
+        
+        <h4 style="color: var(--primary-color); margin-top: 1.5rem;">📋 How to Get Started:</h4>
+        <ol style="color: var(--text-primary);">
+            <li>Open your <a href="https://drive.google.com/drive/folders/1LfSwuD7WxbS0ZdDeGo0hpiviUx6vMhqs?usp=sharing" target="_blank">Google Drive folder</a></li>
+            <li>For each image you want in the slideshow:
+                <ul>
+                    <li>Right-click the file → Share → Copy link</li>
+                    <li>Extract the file ID from the URL (the part after /d/ and before /view)</li>
+                    <li>Example: https://drive.google.com/file/d/<strong>1ABC123xyz</strong>/view</li>
+                </ul>
+            </li>
+            <li>Paste all file IDs in the sidebar (one per line)</li>
+            <li>Click "Load Slideshow" to start!</li>
+        </ol>
+        
+        <h4 style="color: var(--primary-color); margin-top: 1.5rem;">✨ Features:</h4>
+        <ul style="color: var(--text-primary);">
+            <li>🖼️ Full-screen one-by-one display</li>
+            <li>⏯️ Auto-play with 3-second rotation (customizable 1-15 seconds)</li>
+            <li>🔓 No authentication required</li>
+            <li>📊 Progress tracking</li>
+            <li>🎮 Manual navigation controls</li>
+        </ul>
+        
+        <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(99, 102, 241, 0.1); border-radius: 0.5rem; border-left: 4px solid var(--primary-color);">
+            <strong style="color: var(--primary-color);">💡 Tip:</strong>
+            <span style="color: var(--text-primary);"> Make sure your Google Drive files have "Anyone with the link can view" permission enabled.</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
